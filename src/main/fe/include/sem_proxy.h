@@ -32,6 +32,8 @@ class SEMproxy
    */
   SEMproxy(const SemProxyOptions& cfg);
 
+  void saveSnapshot(int timestep);
+
   /**
    * @brief Destructor of the SEMproxy class
    */
@@ -74,7 +76,6 @@ class SEMproxy
    */
   float find_cfl_dt(float cfl_factor);
 
-  void saveSnapshot(int timestep);
 
  private:
   int i1 = 0;

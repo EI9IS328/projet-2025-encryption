@@ -27,6 +27,10 @@ class SemProxyOptions
   bool isModelOnNodes = false;
   bool isElastic = false;
 
+  bool saveSnapshots = false;
+  int snapshotInterval = 50;
+  std::string snapshotFolder = "snapshots";
+
   void validate() const
   {
     if (order < 1) throw std::runtime_error("order must be >= 1");
@@ -71,6 +75,13 @@ class SemProxyOptions
         "Boolean to tell if the model is charged on nodes (true) or on element "
         "(false)",
         cxxopts::value<bool>(o.isModelOnNodes))(
-        "is-elastic", "Elastic simulation", cxxopts::value<bool>(o.isElastic));
+        "is-elastic", "Elastic simulation", cxxopts::value<bool>(o.isElastic))
+        
+        ("save-snapshots", "Enable snapshots saving",
+            cxxopts::value<bool>(o.saveSnapshots))
+        ("snapshot-interval", "Interval (in timesteps) between snapshots",
+            cxxopts::value<int>(o.snapshotInterval))
+        ("snapshot-folder", "Folder where snapshots are saved",
+            cxxopts::value<std::string>(o.snapshotFolder));
   }
 };

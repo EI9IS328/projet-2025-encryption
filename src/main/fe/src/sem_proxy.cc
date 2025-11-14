@@ -138,6 +138,14 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   std::cout << "Time step is " << dt_ << "s" << std::endl;
   std::cout << "Simulated time is " << timemax_ << "s" << std::endl;
 
+  is_snapshots_       = opt.saveSnapshots;
+  snap_time_interval_ = opt.snapshotInterval;
+  snap_folder_        = opt.snapshotFolder;
+
+  std::cout << "[SNAPSHOTS] enabled=" << std::boolalpha << is_snapshots_
+            << " interval=" << snap_time_interval_
+            << " folder=" << snap_folder_ << std::endl;
+
 }
 
 void SEMproxy::run()
@@ -183,6 +191,11 @@ void SEMproxy::run()
     }
 
     pnAtReceiver(0, indexTimeSample) = varnp1;
+
+    if (is_snapshots_ && (indexTimeSample % snap_time_interval_ == 0))
+    {
+      saveSnapshot(indexTimeSample);
+    }
 
     swap(i1, i2);
 
@@ -388,4 +401,40 @@ float SEMproxy::find_cfl_dt(float cfl_factor)
   float dt = cfl_factor * min_spacing / (sqrtDim3 * v_max);
 
   return dt;
+}
+
+void SEMproxy::saveSnapshot(int timestep)
+{
+  if (!is_snapshots_) return;
+
+  std::filesystem::create_directories(snap_folder_);
+
+  std::ostringstream oss;
+  oss << snap_folder_ << "/snapshot_"
+      << std::setw(6) << std::setfill('0') << timestep << ".dat";
+  std::string filename = oss.str();
+
+  std::ofstream out(filename);
+  if (!out)
+  {
+    std::cerr << "Error: cannot open " << filename << " for writing\n";
+    return;
+  }
+
+  int nNodes = static_cast<int>(m_mesh->getNumberOfNodes());
+  float time = timestep * dt_;  // dt_ est le pas de temps stocké dans SEMproxy
+
+  for (int n = 0; n < nNodes; ++n)
+  {
+    float x = m_mesh->nodeCoord(n, 0);  // 0 = X
+    float y = m_mesh->nodeCoord(n, 1);  // 1 = Y
+    float z = m_mesh->nodeCoord(n, 2);  // 2 = Z
+
+
+    float p = pnGlobal(n, i2);
+
+    out << x << " " << y << " " << z << " " << p << "\n";
+  }
+
+  out.close();
 }
