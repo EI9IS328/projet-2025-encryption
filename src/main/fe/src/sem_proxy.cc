@@ -18,6 +18,9 @@
 #include <sstream>
 #include <variant>
 
+#include <iostream>
+using namespace std;
+
 using namespace SourceAndReceiverUtils;
 
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
@@ -156,11 +159,30 @@ void SEMproxy::run()
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
 
+  float min_global = std::numeric_limits<float>::infinity();
+  float max_global = -std::numeric_limits<float>::infinity();
+  int nNodes = static_cast<int>(m_mesh->getNumberOfNodes());
+
   for (int indexTimeSample = 0; indexTimeSample < num_sample_;
        indexTimeSample++)
   {
     startComputeTime = system_clock::now();
     m_solver->computeOneStep(dt_, indexTimeSample, solverData);
+
+    // ===== CALCUL MIN / MAX IN SITU =====
+    float local_min = std::numeric_limits<float>::infinity();
+    float local_max = -std::numeric_limits<float>::infinity();
+
+    for (int n = 0; n < nNodes; ++n)
+    {
+      float v = pnGlobal(n, i2);
+      if (v < local_min) local_min = v;
+      if (v > local_max) local_max = v;
+    }
+
+    if (local_min < min_global) min_global = local_min;
+    if (local_max > max_global) max_global = local_max;
+
     totalComputeTime += system_clock::now() - startComputeTime;
 
     startOutputTime = system_clock::now();
@@ -206,9 +228,17 @@ void SEMproxy::run()
     totalOutputTime += system_clock::now() - startOutputTime;
   }
 
-  float kerneltime_ms = time_point_cast<microseconds>(totalComputeTime)
-                            .time_since_epoch()
-                            .count();
+  std::ofstream stats("stats_minmax.txt");
+  stats << std::setprecision(10);
+  stats << "min " << min_global << std::endl;
+  stats << "max " << max_global << std::endl;
+  stats.close();
+
+  cout << "[INSITU] min_global = " << min_global << endl;
+  cout << "[INSITU] max_global = " << max_global << endl;
+
+  float kerneltime_ms =
+      time_point_cast<microseconds>(totalComputeTime).time_since_epoch().count();
   float outputtime_ms =
       time_point_cast<microseconds>(totalOutputTime).time_since_epoch().count();
 

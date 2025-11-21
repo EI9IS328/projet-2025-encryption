@@ -7,6 +7,9 @@
 #include "sem_proxy.h"
 #include "sem_proxy_options.h"
 
+#include <limits>
+#include <fstream>
+
 time_point<system_clock> startInitTime;
 
 void compute(SEMproxy &semsim)
