@@ -577,7 +577,17 @@ void SEMproxy::closeSismos()
 
 
 
-// TIME EXECUTION FOR AD HOC
+// ------------------ TIME EXECUTION MEASUREMENT FOR AD HOC ------------------
+uintmax_t getFolderSize(const std::filesystem::path& dir) {
+    uintmax_t totalSize = 0;
+    for (auto& p : std::filesystem::recursive_directory_iterator(dir)) {
+        if (std::filesystem::is_regular_file(p)) {
+            totalSize += std::filesystem::file_size(p);
+        }
+    }
+    return totalSize; // bytes
+}
+
 std::string getCurrentDateTime() {
     auto now = std::chrono::system_clock::now();
     std::time_t t = std::chrono::system_clock::to_time_t(now);
@@ -607,6 +617,21 @@ void SEMproxy::saveMetrics(std::chrono::system_clock::time_point compute_tp,
 
     fs::path metricsFile = metricsDir / "metrics.json";
     //fs::path metricsDir = fs::current_path() / "snapshot-metrics";
+
+
+    fs::path snapshotsDir = "snapshots"; //
+    uintmax_t snapshotsSizeBytes = 0;
+
+    if (fs::exists(snapshotsDir)) {
+        snapshotsSizeBytes = getFolderSize(snapshotsDir);
+    }
+
+    fs::path snapshotsDir2 = "sismos"; //
+    uintmax_t snapshotsSizeBytes2 = 0;
+
+    if (fs::exists(snapshotsDir2)) {
+        snapshotsSizeBytes2 = getFolderSize(snapshotsDir2);
+    }
 
     // Duration in seconds
     auto compute_s = std::chrono::duration_cast<std::chrono::microseconds>(compute_tp.time_since_epoch()).count() / 1e6;
@@ -645,6 +670,7 @@ void SEMproxy::saveMetrics(std::chrono::system_clock::time_point compute_tp,
     out << "    \"date\": \""  << getCurrentDateTime() << "\",\n";
     out << "    \"compute_time\": " << compute_s << ",\n";
     out << "    \"output_time\": " << output_s << ",\n";
+    out << "    \"snapshot_size_bytes\": " << (snapshotsSizeBytes+snapshotsSizeBytes2) << ",\n";
     out << "    \"nodes\": " << mesh_nodes << ",\n";
     out << "    \"elements\": " << mesh_elements << ",\n";
     out << "    \"samples\": " << num_sample_ << ",\n";
