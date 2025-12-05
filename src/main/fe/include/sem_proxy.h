@@ -80,6 +80,10 @@ class SEMproxy
    *
    */
   float find_cfl_dt(float cfl_factor);
+  
+ //Method to save Metrics
+  void saveMetrics(std::chrono::system_clock::time_point compute_tp,
+                           std::chrono::system_clock::time_point output_tp);
 
 
  private:

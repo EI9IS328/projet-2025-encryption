@@ -239,6 +239,10 @@ void SEMproxy::run()
   cout << "---- Elapsed Output Time : " << outputtime_ms / 1E6 << " seconds."
        << endl;
   cout << "------------------------------------------------ " << endl;
+
+
+    //4. MESURE DU TEMPS
+  saveMetrics(totalComputeTime, totalOutputTime);
 }
 
 // Initialize arrays
@@ -568,3 +572,86 @@ void SEMproxy::closeSismos()
     std::cout << "[SISMOS] Files closed." << std::endl;
 }
 
+
+
+
+
+
+// TIME EXECUTION FOR AD HOC
+std::string getCurrentDateTime() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);   // safe windows
+#else
+    localtime_r(&t, &tm);   // safe Linux
+#endif
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y%m%d_%H%M%S");  // compact format: 20251121_081230
+    return oss.str();
+}
+void SEMproxy::saveMetrics(std::chrono::system_clock::time_point compute_tp,
+                           std::chrono::system_clock::time_point output_tp)
+{
+  
+    namespace fs = std::filesystem;
+
+    // Create folder build/metrics if it does not exist
+    fs::path metricsDir = "snapshot_metrics";
+    if (!fs::exists(metricsDir)) {
+        fs::create_directory(metricsDir);
+    }
+
+    fs::path metricsFile = metricsDir / "metrics.json";
+    //fs::path metricsDir = fs::current_path() / "snapshot-metrics";
+
+    // Duration in seconds
+    auto compute_s = std::chrono::duration_cast<std::chrono::microseconds>(compute_tp.time_since_epoch()).count() / 1e6;
+    auto output_s  = std::chrono::duration_cast<std::chrono::microseconds>(output_tp.time_since_epoch()).count() / 1e6;
+
+    size_t mesh_nodes    = m_mesh->getNumberOfNodes();
+    size_t mesh_elements = m_mesh->getNumberOfElements();
+
+
+    // We open the file in Read/Write mode
+    std::fstream out(metricsFile, std::ios::in | std::ios::out);
+
+    bool first = true;
+
+    if (!fs::exists(metricsFile) || fs::file_size(metricsFile) == 0)
+    {
+        // New file, we open the object array
+        out.close();
+        out.open(metricsFile, std::ios::out);
+        out << "[\n";
+        first = true;
+    }
+    else
+    {
+        // File existing: move ] before the close of the array
+        out.seekp(-2, std::ios::end); // move pointer
+        out.write("", 0);             // nothing is written, just to stablish the position
+        out.flush();                  // make sure the pointer is correct
+        first = false;
+    }
+
+
+
+    out << std::fixed << std::setprecision(6);
+    out << "  ,{\n";
+    out << "    \"date\": \""  << getCurrentDateTime() << "\",\n";
+    out << "    \"compute_time\": " << compute_s << ",\n";
+    out << "    \"output_time\": " << output_s << ",\n";
+    out << "    \"nodes\": " << mesh_nodes << ",\n";
+    out << "    \"elements\": " << mesh_elements << ",\n";
+    out << "    \"samples\": " << num_sample_ << ",\n";
+    out << "    \"snapshot_enabled\": " << is_snapshots_ << ",\n";
+    out << "    \"snapshot_interval\": " << snap_time_interval_ << "\n";
+    out << "  }\n"; //snapshot_size
+
+    out << "]\n"; // we close the object array
+    out.close();
+}
