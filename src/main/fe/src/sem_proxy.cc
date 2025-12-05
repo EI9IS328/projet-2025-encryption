@@ -20,8 +20,16 @@
 
 using namespace SourceAndReceiverUtils;
 
+
+
+
+
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
 {
+  ex_ = opt.ex;
+  ey_ = opt.ey;
+  ez_ = opt.ez;
+
   const int order = opt.order;
   nb_elements_[0] = opt.ex;
   nb_elements_[1] = opt.ey;
@@ -671,6 +679,9 @@ void SEMproxy::saveMetrics(std::chrono::system_clock::time_point compute_tp,
     out << "    \"compute_time\": " << compute_s << ",\n";
     out << "    \"output_time\": " << output_s << ",\n";
     out << "    \"snapshot_size_bytes\": " << (snapshotsSizeBytes+snapshotsSizeBytes2) << ",\n";
+    out << "    \"ex\": " << ex_ << ",\n";
+    out << "    \"ey\": " << ey_ << ",\n";
+    out << "    \"ez\": " << ez_ << ",\n";
     out << "    \"nodes\": " << mesh_nodes << ",\n";
     out << "    \"elements\": " << mesh_elements << ",\n";
     out << "    \"samples\": " << num_sample_ << ",\n";

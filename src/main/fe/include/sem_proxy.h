@@ -89,6 +89,7 @@ class SEMproxy
  private:
   int i1 = 0;
   int i2 = 1;
+  int ex_, ey_, ez_;
 
   // proper to cartesian mesh
   // or any structured mesh
