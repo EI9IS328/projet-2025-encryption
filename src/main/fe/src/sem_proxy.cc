@@ -145,6 +145,8 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   snap_time_interval_ = opt.snapshotInterval;
   snap_folder_        = opt.snapshotFolder;
 
+  is_snapshots_ = true;
+
   std::cout << "[SNAPSHOTS] enabled=" << std::boolalpha << is_snapshots_
             << " interval=" << snap_time_interval_
             << " folder=" << snap_folder_ << std::endl;
@@ -163,25 +165,45 @@ void SEMproxy::run()
   float max_global = -std::numeric_limits<float>::infinity();
   int nNodes = static_cast<int>(m_mesh->getNumberOfNodes());
 
+  std::ofstream stats("stats_minmax.txt");
+  stats << std::setprecision(10);
+  stats << "# time min max mean variance energy\n";
+
   for (int indexTimeSample = 0; indexTimeSample < num_sample_;
-       indexTimeSample++)
-  {
-    startComputeTime = system_clock::now();
-    m_solver->computeOneStep(dt_, indexTimeSample, solverData);
+       indexTimeSample++) {
+      startComputeTime = system_clock::now();
+      m_solver->computeOneStep(dt_, indexTimeSample, solverData);
 
-    // ===== CALCUL MIN / MAX IN SITU =====
-    float local_min = std::numeric_limits<float>::infinity();
-    float local_max = -std::numeric_limits<float>::infinity();
+  float  local_min = std::numeric_limits<float>::infinity();
+  float  local_max = -std::numeric_limits<float>::infinity();
+  double sum       = 0.0;
+  double sum2      = 0.0;
 
-    for (int n = 0; n < nNodes; ++n)
-    {
+  for (int n = 0; n < nNodes; ++n) {
       float v = pnGlobal(n, i2);
+
+      // Min / Max
       if (v < local_min) local_min = v;
       if (v > local_max) local_max = v;
+
+      // Somme et somme des carrés
+      sum  += v;
+      sum2 += v * v;
     }
 
+    double mean   = sum / nNodes;
+    double energy = sum2;
+    double time   = indexTimeSample * dt_;
+
+    double variance = (sum2 / nNodes) - (mean * mean);  
     if (local_min < min_global) min_global = local_min;
     if (local_max > max_global) max_global = local_max;
+
+    stats << time << " "
+          << local_min << " "
+          << local_max << " "
+          << mean      << " "
+          << energy    << "\n";
 
     totalComputeTime += system_clock::now() - startComputeTime;
 
@@ -228,10 +250,8 @@ void SEMproxy::run()
     totalOutputTime += system_clock::now() - startOutputTime;
   }
 
-  std::ofstream stats("stats_minmax.txt");
-  stats << std::setprecision(10);
-  stats << "min " << min_global << std::endl;
-  stats << "max " << max_global << std::endl;
+  stats << "# global_min " << min_global << "\n";
+  stats << "# global_max " << max_global << "\n";
   stats.close();
 
   cout << "[INSITU] min_global = " << min_global << endl;
