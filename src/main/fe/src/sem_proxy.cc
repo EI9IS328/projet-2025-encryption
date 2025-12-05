@@ -146,6 +146,14 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
             << " interval=" << snap_time_interval_
             << " folder=" << snap_folder_ << std::endl;
 
+  is_sismos_       = opt.saveSismos;
+  sismos_input_file_ = opt.sismosInputFile;
+  sismos_folder_  = opt.sismosFolder;
+
+  std::cout << "[SISMOS] enabled=" << std::boolalpha << is_sismos_
+            << " input=" << sismos_input_file_
+            << " folder=" << sismos_folder_ << std::endl;
+
 }
 
 void SEMproxy::run()
@@ -155,6 +163,11 @@ void SEMproxy::run()
 
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
+
+
+  if (is_sismos_) {
+      initSismos();
+  }
 
   for (int indexTimeSample = 0; indexTimeSample < num_sample_;
        indexTimeSample++)
@@ -192,6 +205,10 @@ void SEMproxy::run()
 
     pnAtReceiver(0, indexTimeSample) = varnp1;
 
+    if (is_sismos_) {
+        saveSismos(indexTimeSample);
+    }
+
     if (is_snapshots_ && (indexTimeSample % snap_time_interval_ == 0))
     {
       saveSnapshot(indexTimeSample);
@@ -204,6 +221,10 @@ void SEMproxy::run()
     solverData.m_i2 = tmp;
 
     totalOutputTime += system_clock::now() - startOutputTime;
+  }
+
+  if (is_sismos_) {
+      closeSismos();
   }
 
   float kerneltime_ms = time_point_cast<microseconds>(totalComputeTime)
@@ -438,3 +459,112 @@ void SEMproxy::saveSnapshot(int timestep)
 
   out.close();
 }
+
+// Initialisation : Lecture du CSV et création des fichiers
+void SEMproxy::initSismos()
+{
+    if (!is_sismos_) return;
+
+    std::cout << "[SISMOS] Initializing seismograms from: " << sismos_input_file_ << std::endl;
+
+    // 1. Création du dossier de sortie
+    std::filesystem::create_directories(sismos_folder_);
+
+    // 2. Ouverture du fichier d'entrée CSV
+    std::ifstream infile(sismos_input_file_);
+    if (!infile.is_open())
+    {
+        std::cerr << "Error: Cannot open sismos input file: " << sismos_input_file_ << std::endl;
+        return;
+    }
+
+    std::string line;
+    while (std::getline(infile, line))
+    {
+        if (line.empty()) continue;
+
+        try 
+        {
+            int nodeID = std::stoi(line);
+            
+            // Vérification que le noeud est valide dans le maillage
+            if (nodeID < 0 || nodeID >= m_mesh->getNumberOfNodes()) {
+                std::cerr << "Warning: Node ID " << nodeID << " is out of bounds. Skipped.\n";
+                continue;
+            }
+
+            // Récupération des coordonnées pour le nom du fichier
+            float x = m_mesh->nodeCoord(nodeID, 0);
+            float y = m_mesh->nodeCoord(nodeID, 1);
+            float z = m_mesh->nodeCoord(nodeID, 2);
+
+            // Construction du nom de fichier : sismo_X_Y_Z.dat
+            std::ostringstream oss;
+            oss << sismos_folder_ << "/sismo_x" 
+                << std::fixed << std::setprecision(2) << x << "_y" 
+                << y << "_z" << z << ".csv";
+            
+            std::string filename = oss.str();
+
+            // Création et ouverture du fichier de sortie
+            auto outfile = std::make_unique<std::ofstream>(filename);
+            if (!outfile->is_open()) {
+                std::cerr << "Error: Cannot create output file " << filename << "\n";
+                continue;
+            }
+
+            // Écriture d'un header optionnel (Temps Pression)
+            *outfile << "Time,Pressure\n";
+
+            // Stockage de l'ID et du pointeur vers le fichier
+            sismos_node_ids_.push_back(nodeID);
+            sismos_files_.push_back(std::move(outfile));
+
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "Error parsing line '" << line << "': " << e.what() << std::endl;
+        }
+    }
+    
+    std::cout << "[SISMOS] " << sismos_node_ids_.size() << " probes initialized." << std::endl;
+    infile.close();
+}
+
+// Écriture : Appelée à chaque pas de temps
+void SEMproxy::saveSismos(int timestep)
+{
+    if (sismos_node_ids_.empty()) return;
+
+    float time = timestep * dt_;
+
+    // Pour chaque noeud observé
+    for (size_t i = 0; i < sismos_node_ids_.size(); ++i)
+    {
+        int nodeID = sismos_node_ids_[i];
+        
+        // Récupération de la pression (attention à utiliser i2 comme dans saveSnapshot)
+        float pressure = pnGlobal(nodeID, i2); 
+
+        // Écriture dans le fichier correspondant
+        // Format: Temps [espace] Pression
+        *sismos_files_[i] << time << "," << pressure << "\n";
+    }
+}
+
+// Nettoyage : Fermeture des fichiers
+void SEMproxy::closeSismos()
+{
+    if (!is_sismos_) return;
+
+    for (auto& file : sismos_files_)
+    {
+        if (file && file->is_open()) {
+            file->close();
+        }
+    }
+    sismos_files_.clear();
+    sismos_node_ids_.clear();
+    std::cout << "[SISMOS] Files closed." << std::endl;
+}
+

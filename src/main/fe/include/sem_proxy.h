@@ -34,6 +34,11 @@ class SEMproxy
 
   void saveSnapshot(int timestep);
 
+  void initSismos();
+  void saveSismos(int timestep);
+  void closeSismos();
+
+
   /**
    * @brief Destructor of the SEMproxy class
    */
@@ -93,6 +98,13 @@ class SEMproxy
   bool is_snapshots_;
   int snap_time_interval_;
   std::string snap_folder_;
+
+  //sismos
+  bool is_sismos_;
+  std::string sismos_input_file_;
+  std::string sismos_folder_;
+  std::vector<int> sismos_node_ids_;
+  std::vector<std::unique_ptr<std::ofstream>> sismos_files_;
 
   // physics
   bool isElastic_;

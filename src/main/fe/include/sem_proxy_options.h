@@ -31,6 +31,11 @@ class SemProxyOptions
   int snapshotInterval = 50;
   std::string snapshotFolder = "snapshots";
 
+  bool saveSismos = false;
+  std::string sismosInputFile = "sismos/sismos_pos.csv";
+  std::string sismosFolder = "sismos";
+
+
   void validate() const
   {
     if (order < 1) throw std::runtime_error("order must be >= 1");
@@ -82,6 +87,14 @@ class SemProxyOptions
         ("snapshot-interval", "Interval (in timesteps) between snapshots",
             cxxopts::value<int>(o.snapshotInterval))
         ("snapshot-folder", "Folder where snapshots are saved",
-            cxxopts::value<std::string>(o.snapshotFolder));
+            cxxopts::value<std::string>(o.snapshotFolder))
+          
+        ("save-sismos", "Enable sismos saving",
+            cxxopts::value<bool>(o.saveSismos))
+        ("sismos-input-file", "Coords of sismos",
+            cxxopts::value<std::string>(o.sismosInputFile))
+        ("sismos-folder", "Folder where snapshots are saved",
+            cxxopts::value<std::string>(o.sismosFolder));
+        
   }
 };
