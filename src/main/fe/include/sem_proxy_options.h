@@ -31,6 +31,8 @@ class SemProxyOptions
   int snapshotInterval = 50;
   std::string snapshotFolder = "snapshots";
 
+  bool enable_insitu_stats_ = false;
+
   void validate() const
   {
     if (order < 1) throw std::runtime_error("order must be >= 1");
@@ -82,6 +84,9 @@ class SemProxyOptions
         ("snapshot-interval", "Interval (in timesteps) between snapshots",
             cxxopts::value<int>(o.snapshotInterval))
         ("snapshot-folder", "Folder where snapshots are saved",
-            cxxopts::value<std::string>(o.snapshotFolder));
+            cxxopts::value<std::string>(o.snapshotFolder))
+        ("insitu-stats", "Enable in-situ descriptive statistics",
+            cxxopts::value<bool>(o.insituStats))
+        ;
   }
 };

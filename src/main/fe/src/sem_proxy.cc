@@ -53,6 +53,7 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   isElastic_ = opt.isElastic;
   cout << boolalpha;
   bool isElastic = isElastic_;
+  //bool enable_insitu_stats_;
 
   const SolverFactory::methodType methodType = getMethod(opt.method);
   const SolverFactory::implemType implemType = getImplem(opt.implem);
@@ -144,19 +145,25 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   is_snapshots_       = opt.saveSnapshots;
   snap_time_interval_ = opt.snapshotInterval;
   snap_folder_        = opt.snapshotFolder;
-
-  is_snapshots_ = true;
+  enable_insitu_stats_ = opt.insituStats;
 
   std::cout << "[SNAPSHOTS] enabled=" << std::boolalpha << is_snapshots_
             << " interval=" << snap_time_interval_
             << " folder=" << snap_folder_ << std::endl;
 
+  std::cout << "[INSITU STATS] enabled=" << std::boolalpha << enable_insitu_stats_
+            << std::endl;
+
+
 }
 
 void SEMproxy::run()
 {
-  time_point<system_clock> startComputeTime, startOutputTime, totalComputeTime,
-      totalOutputTime;
+  using namespace std::chrono;
+
+  time_point<system_clock> startComputeTime, startOutputTime;
+  microseconds totalComputeTime(0);
+  microseconds totalOutputTime(0);
 
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
@@ -165,48 +172,54 @@ void SEMproxy::run()
   float max_global = -std::numeric_limits<float>::infinity();
   int nNodes = static_cast<int>(m_mesh->getNumberOfNodes());
 
-  std::ofstream stats("stats_minmax.txt");
-  stats << std::setprecision(10);
-  stats << "# time min max mean variance energy\n";
+  std::ofstream stats;
+  if (enable_insitu_stats_) {
+    stats.open("stats_minmax.txt");
+    stats << std::setprecision(10);
+    stats << "# time min max mean variance energy\n";
+  }
 
-  for (int indexTimeSample = 0; indexTimeSample < num_sample_;
-       indexTimeSample++) {
-      startComputeTime = system_clock::now();
-      m_solver->computeOneStep(dt_, indexTimeSample, solverData);
+  for (int indexTimeSample = 0; indexTimeSample < num_sample_; indexTimeSample++)
+  {
+    // -------------------- KERNEL --------------------
+    startComputeTime = system_clock::now();
+    m_solver->computeOneStep(dt_, indexTimeSample, solverData);
+    totalComputeTime += duration_cast<microseconds>(system_clock::now() - startComputeTime);
 
-  float  local_min = std::numeric_limits<float>::infinity();
-  float  local_max = -std::numeric_limits<float>::infinity();
-  double sum       = 0.0;
-  double sum2      = 0.0;
+    // -------------------- STATS IN-SITU (optionnel) --------------------
+    if (enable_insitu_stats_) {
+      float  local_min = std::numeric_limits<float>::infinity();
+      float  local_max = -std::numeric_limits<float>::infinity();
+      double sum       = 0.0;
+      double sum2      = 0.0;
 
-  for (int n = 0; n < nNodes; ++n) {
-      float v = pnGlobal(n, i2);
+      for (int n = 0; n < nNodes; ++n) {
+        float v = pnGlobal(n, i2);
 
-      // Min / Max
-      if (v < local_min) local_min = v;
-      if (v > local_max) local_max = v;
+        if (v < local_min) local_min = v;
+        if (v > local_max) local_max = v;
 
-      // Somme et somme des carrés
-      sum  += v;
-      sum2 += v * v;
+        sum  += v;
+        sum2 += v * v;
+      }
+
+      double mean     = sum / nNodes;
+      double variance = (sum2 / nNodes) - (mean * mean);
+      double energy   = sum2;
+      double time     = indexTimeSample * dt_;
+
+      if (local_min < min_global) min_global = local_min;
+      if (local_max > max_global) max_global = local_max;
+
+      stats << time      << " "
+            << local_min << " "
+            << local_max << " "
+            << mean      << " "
+            << variance  << " "
+            << energy    << "\n";
     }
 
-    double mean   = sum / nNodes;
-    double energy = sum2;
-    double time   = indexTimeSample * dt_;
-
-    double variance = (sum2 / nNodes) - (mean * mean);  
-    if (local_min < min_global) min_global = local_min;
-    if (local_max > max_global) max_global = local_max;
-
-    stats << time << " "
-          << local_min << " "
-          << local_max << " "
-          << mean      << " "
-          << energy    << "\n";
-
-    totalComputeTime += system_clock::now() - startComputeTime;
-
+    // -------------------- E/S (snapshots, sortie, sismo) --------------------
     startOutputTime = system_clock::now();
 
     if (indexTimeSample % 50 == 0)
@@ -217,7 +230,6 @@ void SEMproxy::run()
 
     // Save pressure at receiver
     const int order = m_mesh->getOrder();
-
     float varnp1 = 0.0;
     for (int i = 0; i < order + 1; i++)
     {
@@ -241,31 +253,32 @@ void SEMproxy::run()
       saveSnapshot(indexTimeSample);
     }
 
+    // Swap buffers
     swap(i1, i2);
-
     auto tmp = solverData.m_i1;
     solverData.m_i1 = solverData.m_i2;
     solverData.m_i2 = tmp;
 
-    totalOutputTime += system_clock::now() - startOutputTime;
+    totalOutputTime += duration_cast<microseconds>(system_clock::now() - startOutputTime);
   }
 
-  stats << "# global_min " << min_global << "\n";
-  stats << "# global_max " << max_global << "\n";
-  stats.close();
+  // -------------------- FIN : stats globales et affichage --------------------
+  if (enable_insitu_stats_) {
+    stats << "# global_min " << min_global << "\n";
+    stats << "# global_max " << max_global << "\n";
+    stats.close();
 
-  cout << "[INSITU] min_global = " << min_global << endl;
-  cout << "[INSITU] max_global = " << max_global << endl;
+    cout << "[INSITU] min_global = " << min_global << endl;
+    cout << "[INSITU] max_global = " << max_global << endl;
+  }
 
-  float kerneltime_ms =
-      time_point_cast<microseconds>(totalComputeTime).time_since_epoch().count();
-  float outputtime_ms =
-      time_point_cast<microseconds>(totalOutputTime).time_since_epoch().count();
+  float kerneltime_s = totalComputeTime.count() / 1e6f;
+  float outputtime_s = totalOutputTime.count()  / 1e6f;
 
   cout << "------------------------------------------------ " << endl;
-  cout << "\n---- Elapsed Kernel Time : " << kerneltime_ms / 1E6 << " seconds."
+  cout << "\n---- Elapsed Kernel Time : " << kerneltime_s << " seconds."
        << endl;
-  cout << "---- Elapsed Output Time : " << outputtime_ms / 1E6 << " seconds."
+  cout << "---- Elapsed Output Time : " << outputtime_s << " seconds."
        << endl;
   cout << "------------------------------------------------ " << endl;
 }
