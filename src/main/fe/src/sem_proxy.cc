@@ -18,10 +18,8 @@
 #include <sstream>
 #include <variant>
 
+#include <limits>
 using namespace SourceAndReceiverUtils;
-
-
-
 
 
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
@@ -165,6 +163,23 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
             << " input=" << sismos_input_file_
             << " folder=" << sismos_folder_ << std::endl;
 
+  is_pressure_insitu_       = opt.pressureInsitu;
+  pressure_stats_interval_  = opt.pressureStatsInterval;
+  pressure_stats_file_      = opt.pressureStatsFile;
+
+  if (is_pressure_insitu_) {
+    is_snapshots_ = false;
+  }
+
+  if (is_pressure_insitu_) {
+    initPressureInsitu();
+  }
+
+
+  std::cout << "[PRESSURE-INSITU] enabled=" << std::boolalpha << is_pressure_insitu_
+            << " interval=" << pressure_stats_interval_
+            << " file=" << pressure_stats_file_ << std::endl;
+
 }
 
 void SEMproxy::run()
@@ -194,11 +209,11 @@ void SEMproxy::run()
 
     startOutputTime = system_clock::now();
 
-    if (indexTimeSample % 50 == 0)
-    {
-      m_solver->outputSolutionValues(indexTimeSample, i1, rhsElement[0],
-                                     pnGlobal, "pnGlobal");
-    }
+    // if (indexTimeSample % 50 == 0)
+    // {
+    //   m_solver->outputSolutionValues(indexTimeSample, i1, rhsElement[0],
+    //                                  pnGlobal, "pnGlobal");
+    // }
 
     // Save pressure at receiver
     const int order = m_mesh->getOrder();
@@ -241,6 +256,15 @@ void SEMproxy::run()
     {
       saveSnapshot(indexTimeSample);
     }
+
+    if (is_pressure_insitu_ && (indexTimeSample % pressure_stats_interval_ == 0))
+    {
+      auto t0 = system_clock::now();
+      updatePressureInsitu(indexTimeSample);
+      auto t1 = system_clock::now();
+      totalPressureInsituCompute_ += (t1 - t0);
+    }
+
 
     swap(i1, i2);
 
@@ -285,6 +309,10 @@ void SEMproxy::run()
       std::cout << "---- Extra Compute Time (Accumulation) : " << insituCompute_us / 1E6 << " s" << std::endl;
       std::cout << "---- Write Time (Final Flush)          : " << insituWrite_us / 1E6 << " s" << std::endl;
       std::cout << "------------------------------------------------ " << std::endl;
+  }
+
+  if (is_pressure_insitu_) {
+    closePressureInsitu();
   }
 
     //4. MESURE DU TEMPS
@@ -707,6 +735,70 @@ std::string getCurrentDateTime() {
     oss << std::put_time(&tm, "%Y%m%d_%H%M%S");  // compact format: 20251121_081230
     return oss.str();
 }
+
+void SEMproxy::initPressureInsitu()
+{
+  if (!is_pressure_insitu_) return;
+
+  pressure_stats_out_.open(pressure_stats_file_);
+  if (!pressure_stats_out_.is_open())
+  {
+    std::cerr << "[PRESSURE-INSITU] Error: cannot open " << pressure_stats_file_ << "\n";
+    is_pressure_insitu_ = false;
+    return;
+  }
+
+  pressure_stats_out_ << "timestep,time_s,min_p,max_p,mean_p,var_p,energy_sum_p2\n";
+  pressure_stats_out_ << std::fixed << std::setprecision(6);
+}
+
+void SEMproxy::updatePressureInsitu(int timestep)
+{
+  // calc stats on pnGlobal(:, i2)
+  const int nNodes = static_cast<int>(m_mesh->getNumberOfNodes());
+  if (nNodes <= 0) return;
+
+  double sum = 0.0;
+  double sum2 = 0.0;
+  double energy = 0.0;
+
+  float pmin = std::numeric_limits<float>::max();
+  float pmax = std::numeric_limits<float>::lowest();
+
+  for (int n = 0; n < nNodes; ++n)
+  {
+    const float p = pnGlobal(n, i2);
+
+    if (p < pmin) pmin = p;
+    if (p > pmax) pmax = p;
+
+    sum += (double)p;
+    sum2 += (double)p * (double)p;
+    energy += (double)p * (double)p; // somme p^2
+  }
+
+  const double mean = sum / (double)nNodes;
+  const double var  = (sum2 / (double)nNodes) - (mean * mean);
+
+  const double time_s = (double)timestep * (double)dt_;
+
+  pressure_stats_out_
+      << timestep << ","
+      << time_s << ","
+      << pmin << ","
+      << pmax << ","
+      << mean << ","
+      << var  << ","
+      << energy
+      << "\n";
+}
+
+void SEMproxy::closePressureInsitu()
+{
+  if (pressure_stats_out_.is_open())
+    pressure_stats_out_.close();
+}
+
 void SEMproxy::saveMetrics(std::chrono::system_clock::time_point compute_tp,
                            std::chrono::system_clock::time_point output_tp)
 {
@@ -767,10 +859,13 @@ void SEMproxy::saveMetrics(std::chrono::system_clock::time_point compute_tp,
         first = false;
     }
 
+    auto pressure_insitu_s =
+    std::chrono::duration_cast<std::chrono::microseconds>(totalPressureInsituCompute_).count() / 1e6;
 
 
     out << std::fixed << std::setprecision(6);
-    out << "  ,{\n";
+    if (!first) out << ",\n";
+    out << "  {\n";
     out << "    \"date\": \""  << getCurrentDateTime() << "\",\n";
     out << "    \"compute_time\": " << compute_s << ",\n";
     out << "    \"output_time\": " << output_s << ",\n";

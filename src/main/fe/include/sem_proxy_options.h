@@ -31,6 +31,11 @@ class SemProxyOptions
   int snapshotInterval = 50;
   std::string snapshotFolder = "snapshots";
 
+  bool pressureInsitu = false;
+  int pressureStatsInterval = 50;
+  std::string pressureStatsFile = "pressure_insitu_stats.csv";
+
+
   bool saveSismos = false;
   bool saveSismosInsitu = false;
   std::string sismosInputFile = "sismos/sismos_pos.csv";
@@ -97,7 +102,13 @@ class SemProxyOptions
         ("sismos-input-file", "Coords of sismos",
             cxxopts::value<std::string>(o.sismosInputFile))
         ("sismos-folder", "Folder where snapshots are saved",
-            cxxopts::value<std::string>(o.sismosFolder));
+            cxxopts::value<std::string>(o.sismosFolder))
+        ("pressure-insitu", "Enable in-situ pressure statistics (disable snapshots)",
+            cxxopts::value<bool>(o.pressureInsitu))
+        ("pressure-stats-interval", "Interval (in timesteps) for pressure in-situ stats",
+            cxxopts::value<int>(o.pressureStatsInterval))
+        ("pressure-stats-file", "Output CSV for pressure in-situ stats",
+            cxxopts::value<std::string>(o.pressureStatsFile));
         
   }
 };

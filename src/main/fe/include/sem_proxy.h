@@ -18,6 +18,8 @@
 #include <string>
 #include <variant>
 
+#include <fstream>
+
 #include "sem_proxy_options.h"
 
 /**
@@ -106,6 +108,21 @@ class SEMproxy
   bool is_snapshots_;
   int snap_time_interval_;
   std::string snap_folder_;
+
+  // pressure in-situ stats
+  bool is_pressure_insitu_ = false;
+  int pressure_stats_interval_ = 50;
+  std::string pressure_stats_file_;
+  std::ofstream pressure_stats_out_;
+
+  // timers for pressure in-situ
+  std::chrono::system_clock::duration totalPressureInsituCompute_ = {};
+  std::chrono::system_clock::duration totalPressureInsituWrite_   = {};
+
+  void initPressureInsitu();
+  void updatePressureInsitu(int timestep);
+  void closePressureInsitu();
+
 
   //sismos
   bool is_sismos_;
