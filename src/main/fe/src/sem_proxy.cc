@@ -213,9 +213,6 @@ void SEMproxy::run()
 
     pnAtReceiver(0, indexTimeSample) = varnp1;
 
-    // ----------------------------------------------------------------
-    // GESTION IN SITU / SISMOS
-    // ----------------------------------------------------------------
     if (is_sismos_) 
     {
         if (is_sismos_insitu_) 
@@ -228,11 +225,9 @@ void SEMproxy::run()
         } 
         else 
         {
-            // Mode Classique : E/S disques directes
             saveSismos(indexTimeSample); 
         }
     }
-    // ----------------------------------------------------------------
 
     if (is_snapshots_ && (indexTimeSample % snap_time_interval_ == 0))
     {
@@ -248,7 +243,6 @@ void SEMproxy::run()
     totalOutputTime += system_clock::now() - startOutputTime;
   }
 
-  // Fin de simulation : Flush In Situ
   if (is_sismos_) {
       if (is_sismos_insitu_) {
           startInsituTime = system_clock::now();
@@ -275,7 +269,6 @@ void SEMproxy::run()
   cout << "------------------------------------------------ " << endl;
 
   if (is_sismos_ && is_sismos_insitu_) {
-      // Conversion identique aux autres (microseconds -> count -> division par 1E6 pour secondes)
       float insituCompute_us = time_point_cast<microseconds>(totalInsituComputeTime).time_since_epoch().count();
       float insituWrite_us   = time_point_cast<microseconds>(totalInsituWriteTime).time_since_epoch().count();
 
@@ -514,14 +507,14 @@ void SEMproxy::initSismos()
               << (is_sismos_insitu_ ? "IN SITU SUMMARY" : "DIRECT I/O") << ")..." << std::endl;
 
     std::filesystem::create_directories(sismos_folder_);
+    std::filesystem::create_directories(sismos_folder_+"/logs_insitu");
+    std::filesystem::create_directories(sismos_folder_+"/logs_adhoc");
 
     // Helper lambda pour enregistrer une sonde
     auto register_probe = [&](int nodeID, std::string filename_direct_io) {
         
-        // 1. On stocke toujours l'ID pour savoir quels noeuds écouter
         sismos_node_ids_.push_back(nodeID);
 
-        // 2. Si on est en mode Direct I/O (PAS In Situ), on ouvre le fichier individuel
         if (!is_sismos_insitu_) {
             auto outfile = std::make_unique<std::ofstream>(filename_direct_io);
             if (outfile->is_open()) {
@@ -531,10 +524,9 @@ void SEMproxy::initSismos()
                 std::cerr << "Error: Cannot create " << filename_direct_io << std::endl;
             }
         }
-        // En mode In Situ, sismos_files_ reste vide, on n'ouvre rien maintenant.
     };
 
-    // --- A. Ajout de la sonde Source ---
+    // A. Ajout de la sonde Source
     {
         float lx = domain_size_[0]; float ly = domain_size_[1]; float lz = domain_size_[2];
         int ex = nb_elements_[0]; int ey = nb_elements_[1]; int ez = nb_elements_[2];
@@ -544,11 +536,11 @@ void SEMproxy::initSismos()
                                 floor((src_coord_[2] * ez) / lz) * ey * ex;
         int source_node_id = m_mesh->globalNodeIndex(source_elem_index, 0, 0, 0);
         
-        std::string source_filename = sismos_folder_ + "/sismo_source.csv";
+        std::string source_filename = sismos_folder_ + "/logs_adhoc" + "/sismo_source.csv";
         register_probe(source_node_id, source_filename);
     }
 
-    // --- B. Ajout des sondes depuis le fichier d'entrée ---
+    // Ajout des sondes depuis le fichier d'entrée
     std::ifstream infile(sismos_input_file_);
     if (infile.is_open()) {
         std::string line;
@@ -563,7 +555,7 @@ void SEMproxy::initSismos()
                 float y = m_mesh->nodeCoord(nodeID, 1);
                 float z = m_mesh->nodeCoord(nodeID, 2);
                 std::ostringstream oss;
-                oss << sismos_folder_ << "/sismo_x" << std::fixed << std::setprecision(2) 
+                oss << sismos_folder_ << "/logs_adhoc" << "/sismo_x" << std::fixed << std::setprecision(2) 
                     << x << "_y" << y << "_z" << z << ".csv";
                 
                 register_probe(nodeID, oss.str());
@@ -572,13 +564,12 @@ void SEMproxy::initSismos()
         infile.close();
     }
 
-    // --- C. Allocation mémoire pour In Situ ---
+    // Allocation mémoire pour In Situ 
     if (is_sismos_insitu_) {
         size_t n = sismos_node_ids_.size();
         
         sismos_energy_.assign(n, 0.0);
         
-        // Initialisation aux extrêmes possibles
         sismos_min_.assign(n, 9999999999999999);
         sismos_max_.assign(n, -9999999999999999);
         
@@ -607,7 +598,6 @@ void SEMproxy::saveSismos(int timestep)
     }
 }
 
-// Nettoyage : Fermeture des fichiers
 void SEMproxy::closeSismos()
 {
     if (!is_sismos_) return;
@@ -630,10 +620,10 @@ void SEMproxy::updateSismosInsitu()
         int nodeID = sismos_node_ids_[i];
         float p = pnGlobal(nodeID, i2); 
         
-        // 1. Énergie
+        // Énergie
         sismos_energy_[i] += (double)(p * p) * dt_;
 
-        // 2. Mise à jour Min / Max
+        // Mise à jour Min / Max
         if (p < sismos_min_[i]) {
             sismos_min_[i] = p;
         }
@@ -647,13 +637,12 @@ void SEMproxy::flushSismosInsitu()
 {
     if (sismos_node_ids_.empty()) return;
 
-    std::string summary_filename = sismos_folder_ + "/sismos_insitu_summary.csv";
+    std::string summary_filename = sismos_folder_ + "/logs_insitu" + "/sismos_insitu_summary.csv";
     std::cout << "[SISMOS] Writing In Situ summary to: " << summary_filename << std::endl;
 
     std::ofstream out(summary_filename);
     if (!out.is_open()) return;
 
-    // En-tête mis à jour
     out << "NodeID,X,Y,Z,TotalEnergy_Pa2s,MinPressure_Pa,MaxPressure_Pa\n";
     out << std::fixed << std::setprecision(6);
 
