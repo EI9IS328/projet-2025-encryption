@@ -53,6 +53,8 @@ int main(int argc, char *argv[])
     SemProxyOptions::bind_cli(options, opt);
 
     auto result = options.parse(argc, argv);
+    //Now opt.ex, opt.ey, opt.ez contains the values from command line
+
 
     if (result.count("help"))
     {
