@@ -31,7 +31,11 @@ class SemProxyOptions
   int snapshotInterval = 50;
   std::string snapshotFolder = "snapshots";
 
-  bool enable_insitu_stats_ = false;
+  bool saveSismos = false;
+  bool saveSismosInsitu = false;
+  std::string sismosInputFile = "sismos/sismos_pos.csv";
+  std::string sismosFolder = "sismos";
+
 
   void validate() const
   {
@@ -85,8 +89,15 @@ class SemProxyOptions
             cxxopts::value<int>(o.snapshotInterval))
         ("snapshot-folder", "Folder where snapshots are saved",
             cxxopts::value<std::string>(o.snapshotFolder))
-        ("insitu-stats", "Enable in-situ descriptive statistics",
-            cxxopts::value<bool>(o.insituStats))
-        ;
+          
+        ("save-sismos", "Enable sismos saving",
+            cxxopts::value<bool>(o.saveSismos))
+        ("save-sismos-insitu", "Enable insitu sismos saving",
+            cxxopts::value<bool>(o.saveSismosInsitu))
+        ("sismos-input-file", "Coords of sismos",
+            cxxopts::value<std::string>(o.sismosInputFile))
+        ("sismos-folder", "Folder where snapshots are saved",
+            cxxopts::value<std::string>(o.sismosFolder));
+        
   }
 };

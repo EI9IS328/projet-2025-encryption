@@ -34,6 +34,14 @@ class SEMproxy
 
   void saveSnapshot(int timestep);
 
+  void initSismos();
+  void saveSismos(int timestep);
+  void closeSismos();
+
+  void updateSismosInsitu(); // Calcul à chaque pas
+  void flushSismosInsitu();  // Écriture finale
+
+
   /**
    * @brief Destructor of the SEMproxy class
    */
@@ -75,11 +83,16 @@ class SEMproxy
    *
    */
   float find_cfl_dt(float cfl_factor);
+  
+ //Method to save Metrics
+  void saveMetrics(std::chrono::system_clock::time_point compute_tp,
+                           std::chrono::system_clock::time_point output_tp);
 
 
  private:
   int i1 = 0;
   int i2 = 1;
+  int ex_, ey_, ez_;
 
   // proper to cartesian mesh
   // or any structured mesh
@@ -93,6 +106,17 @@ class SEMproxy
   bool is_snapshots_;
   int snap_time_interval_;
   std::string snap_folder_;
+
+  //sismos
+  bool is_sismos_;
+  bool is_sismos_insitu_;
+  std::vector<double> sismos_energy_;
+  std::vector<float> sismos_min_;
+  std::vector<float> sismos_max_;
+  std::string sismos_input_file_;
+  std::string sismos_folder_;
+  std::vector<int> sismos_node_ids_;
+  std::vector<std::unique_ptr<std::ofstream>> sismos_files_;
 
   // physics
   bool isElastic_;

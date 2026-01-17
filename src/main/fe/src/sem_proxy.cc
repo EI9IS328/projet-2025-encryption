@@ -23,8 +23,16 @@ using namespace std;
 
 using namespace SourceAndReceiverUtils;
 
+
+
+
+
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
 {
+  ex_ = opt.ex;
+  ey_ = opt.ey;
+  ez_ = opt.ez;
+
   const int order = opt.order;
   nb_elements_[0] = opt.ex;
   nb_elements_[1] = opt.ey;
@@ -151,9 +159,16 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
             << " interval=" << snap_time_interval_
             << " folder=" << snap_folder_ << std::endl;
 
-  std::cout << "[INSITU STATS] enabled=" << std::boolalpha << enable_insitu_stats_
-            << std::endl;
+  is_sismos_       = opt.saveSismos;
+  is_sismos_insitu_ = opt.saveSismosInsitu;
+  if (is_sismos_insitu_) is_sismos_=true;
+  sismos_input_file_ = opt.sismosInputFile;
+  sismos_folder_  = opt.sismosFolder;
 
+  std::cout << "[SISMOS] enabled=" << std::boolalpha << (is_sismos_)
+            << "Insitu procesisng=" << std::boolalpha << is_sismos_insitu_
+            << " input=" << sismos_input_file_
+            << " folder=" << sismos_folder_ << std::endl;
 
 }
 
@@ -165,26 +180,26 @@ void SEMproxy::run()
   microseconds totalComputeTime(0);
   microseconds totalOutputTime(0);
 
+  time_point<system_clock> totalInsituComputeTime = {}, totalInsituWriteTime = {};
+  time_point<system_clock> startInsituTime;
+
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
 
-  float min_global = std::numeric_limits<float>::infinity();
-  float max_global = -std::numeric_limits<float>::infinity();
-  int nNodes = static_cast<int>(m_mesh->getNumberOfNodes());
-
-  std::ofstream stats;
-  if (enable_insitu_stats_) {
-    stats.open("stats_minmax.txt");
-    stats << std::setprecision(10);
-    stats << "# time min max mean variance energy\n";
+  if (is_sismos_) {
+      initSismos();
   }
 
-  for (int indexTimeSample = 0; indexTimeSample < num_sample_; indexTimeSample++)
+  for (int indexTimeSample = 0; indexTimeSample < num_sample_;
+       indexTimeSample++)
   {
     // -------------------- KERNEL --------------------
     startComputeTime = system_clock::now();
+
     m_solver->computeOneStep(dt_, indexTimeSample, solverData);
-    totalComputeTime += duration_cast<microseconds>(system_clock::now() - startComputeTime);
+    
+    // Accumulation du temps de calcul total
+    totalComputeTime += system_clock::now() - startComputeTime;
 
     // -------------------- STATS IN-SITU (optionnel) --------------------
     if (enable_insitu_stats_) {
@@ -248,6 +263,22 @@ void SEMproxy::run()
 
     pnAtReceiver(0, indexTimeSample) = varnp1;
 
+    if (is_sismos_) 
+    {
+        if (is_sismos_insitu_) 
+        {
+            startInsituTime = system_clock::now();
+            
+            updateSismosInsitu();
+            
+            totalInsituComputeTime += system_clock::now() - startInsituTime;
+        } 
+        else 
+        {
+            saveSismos(indexTimeSample); 
+        }
+    }
+
     if (is_snapshots_ && (indexTimeSample % snap_time_interval_ == 0))
     {
       saveSnapshot(indexTimeSample);
@@ -262,18 +293,23 @@ void SEMproxy::run()
     totalOutputTime += duration_cast<microseconds>(system_clock::now() - startOutputTime);
   }
 
-  // -------------------- FIN : stats globales et affichage --------------------
-  if (enable_insitu_stats_) {
-    stats << "# global_min " << min_global << "\n";
-    stats << "# global_max " << max_global << "\n";
-    stats.close();
-
-    cout << "[INSITU] min_global = " << min_global << endl;
-    cout << "[INSITU] max_global = " << max_global << endl;
+  if (is_sismos_) {
+      if (is_sismos_insitu_) {
+          startInsituTime = system_clock::now();
+          
+          flushSismosInsitu();
+          
+          totalInsituWriteTime += system_clock::now() - startInsituTime;
+      }
+      closeSismos();
   }
 
-  float kerneltime_s = totalComputeTime.count() / 1e6f;
-  float outputtime_s = totalOutputTime.count()  / 1e6f;
+  // Conversion des temps existants
+  float kerneltime_ms = time_point_cast<microseconds>(totalComputeTime)
+                            .time_since_epoch()
+                            .count();
+  float outputtime_ms =
+      time_point_cast<microseconds>(totalOutputTime).time_since_epoch().count();
 
   cout << "------------------------------------------------ " << endl;
   cout << "\n---- Elapsed Kernel Time : " << kerneltime_s << " seconds."
@@ -281,6 +317,20 @@ void SEMproxy::run()
   cout << "---- Elapsed Output Time : " << outputtime_s << " seconds."
        << endl;
   cout << "------------------------------------------------ " << endl;
+
+  if (is_sismos_ && is_sismos_insitu_) {
+      float insituCompute_us = time_point_cast<microseconds>(totalInsituComputeTime).time_since_epoch().count();
+      float insituWrite_us   = time_point_cast<microseconds>(totalInsituWriteTime).time_since_epoch().count();
+
+      std::cout << "------------------------------------------------ " << std::endl;
+      std::cout << "---- IN SITU BENCHMARK " << std::endl;
+      std::cout << "---- Extra Compute Time (Accumulation) : " << insituCompute_us / 1E6 << " s" << std::endl;
+      std::cout << "---- Write Time (Final Flush)          : " << insituWrite_us / 1E6 << " s" << std::endl;
+      std::cout << "------------------------------------------------ " << std::endl;
+  }
+
+    //4. MESURE DU TEMPS
+  saveMetrics(totalComputeTime, totalOutputTime);
 }
 
 // Initialize arrays
@@ -500,4 +550,283 @@ void SEMproxy::saveSnapshot(int timestep)
   }
 
   out.close();
+}
+
+void SEMproxy::initSismos()
+{
+    if (!is_sismos_) return;
+
+    std::cout << "[SISMOS] Initializing seismograms (Mode: " 
+              << (is_sismos_insitu_ ? "IN SITU SUMMARY" : "DIRECT I/O") << ")..." << std::endl;
+
+    std::filesystem::create_directories(sismos_folder_);
+    std::filesystem::create_directories(sismos_folder_+"/logs_insitu");
+    std::filesystem::create_directories(sismos_folder_+"/logs_adhoc");
+
+    // Helper lambda pour enregistrer une sonde
+    auto register_probe = [&](int nodeID, std::string filename_direct_io) {
+        
+        sismos_node_ids_.push_back(nodeID);
+
+        if (!is_sismos_insitu_) {
+            auto outfile = std::make_unique<std::ofstream>(filename_direct_io);
+            if (outfile->is_open()) {
+                *outfile << "Time,Pressure\n";
+                sismos_files_.push_back(std::move(outfile));
+            } else {
+                std::cerr << "Error: Cannot create " << filename_direct_io << std::endl;
+            }
+        }
+    };
+
+    // A. Ajout de la sonde Source
+    {
+        float lx = domain_size_[0]; float ly = domain_size_[1]; float lz = domain_size_[2];
+        int ex = nb_elements_[0]; int ey = nb_elements_[1]; int ez = nb_elements_[2];
+        
+        int source_elem_index = floor((src_coord_[0] * ex) / lx) +
+                                floor((src_coord_[1] * ey) / ly) * ex +
+                                floor((src_coord_[2] * ez) / lz) * ey * ex;
+        int source_node_id = m_mesh->globalNodeIndex(source_elem_index, 0, 0, 0);
+        
+        std::string source_filename = sismos_folder_ + "/logs_adhoc" + "/sismo_source.csv";
+        register_probe(source_node_id, source_filename);
+    }
+
+    // Ajout des sondes depuis le fichier d'entrée
+    std::ifstream infile(sismos_input_file_);
+    if (infile.is_open()) {
+        std::string line;
+        while (std::getline(infile, line)) {
+            if (line.empty()) continue;
+            try {
+                int nodeID = std::stoi(line);
+                if (nodeID < 0 || nodeID >= m_mesh->getNumberOfNodes()) continue;
+
+                // Construction du nom pour le mode Direct I/O (inutile en In Situ mais gardé pour la logique)
+                float x = m_mesh->nodeCoord(nodeID, 0);
+                float y = m_mesh->nodeCoord(nodeID, 1);
+                float z = m_mesh->nodeCoord(nodeID, 2);
+                std::ostringstream oss;
+                oss << sismos_folder_ << "/logs_adhoc" << "/sismo_x" << std::fixed << std::setprecision(2) 
+                    << x << "_y" << y << "_z" << z << ".csv";
+                
+                register_probe(nodeID, oss.str());
+            } catch (...) {}
+        }
+        infile.close();
+    }
+
+    // Allocation mémoire pour In Situ 
+    if (is_sismos_insitu_) {
+        size_t n = sismos_node_ids_.size();
+        
+        sismos_energy_.assign(n, 0.0);
+        
+        sismos_min_.assign(n, 9999999999999999);
+        sismos_max_.assign(n, -9999999999999999);
+        
+        std::cout << "[SISMOS] In Situ Mode: Allocated memory cache for " 
+                  << n << " probes." << std::endl;
+    } else {
+        std::cout << "[SISMOS] Direct I/O Mode: Opened " << sismos_files_.size() << " individual files." << std::endl;
+    }
+}
+
+void SEMproxy::saveSismos(int timestep)
+{
+    if (sismos_node_ids_.empty()) return;
+
+    float time = timestep * dt_;
+
+    for (size_t i = 0; i < sismos_node_ids_.size(); ++i)
+    {
+        int nodeID = sismos_node_ids_[i];
+        
+        // Récupération de la pression
+        float pressure = pnGlobal(nodeID, i2); 
+
+        // Écriture dans le fichier correspondant
+        *sismos_files_[i] << time << "," << pressure << "\n";
+    }
+}
+
+void SEMproxy::closeSismos()
+{
+    if (!is_sismos_) return;
+
+    for (auto& file : sismos_files_)
+    {
+        if (file && file->is_open()) {
+            file->close();
+        }
+    }
+    sismos_files_.clear();
+    sismos_node_ids_.clear();
+    std::cout << "[SISMOS] Files closed." << std::endl;
+}
+
+void SEMproxy::updateSismosInsitu()
+{
+    for (size_t i = 0; i < sismos_node_ids_.size(); ++i)
+    {
+        int nodeID = sismos_node_ids_[i];
+        float p = pnGlobal(nodeID, i2); 
+        
+        // Énergie
+        sismos_energy_[i] += (double)(p * p) * dt_;
+
+        // Mise à jour Min / Max
+        if (p < sismos_min_[i]) {
+            sismos_min_[i] = p;
+        }
+        if (p > sismos_max_[i]) {
+            sismos_max_[i] = p;
+        }
+    }
+}
+
+void SEMproxy::flushSismosInsitu()
+{
+    if (sismos_node_ids_.empty()) return;
+
+    std::string summary_filename = sismos_folder_ + "/logs_insitu" + "/sismos_insitu_summary.csv";
+    std::cout << "[SISMOS] Writing In Situ summary to: " << summary_filename << std::endl;
+
+    std::ofstream out(summary_filename);
+    if (!out.is_open()) return;
+
+    out << "NodeID,X,Y,Z,TotalEnergy_Pa2s,MinPressure_Pa,MaxPressure_Pa\n";
+    out << std::fixed << std::setprecision(6);
+
+    for (size_t i = 0; i < sismos_node_ids_.size(); ++i)
+    {
+        int nodeID = sismos_node_ids_[i];
+        
+        float x = m_mesh->nodeCoord(nodeID, 0);
+        float y = m_mesh->nodeCoord(nodeID, 1);
+        float z = m_mesh->nodeCoord(nodeID, 2);
+
+        double energy = sismos_energy_[i];
+        float p_min   = sismos_min_[i];
+        float p_max   = sismos_max_[i];
+
+        out << nodeID << "," << x << "," << y << "," << z << "," 
+            << energy << "," << p_min << "," << p_max << "\n";
+    }
+
+    out.close();
+}
+
+
+
+
+
+
+// ------------------ TIME EXECUTION MEASUREMENT FOR AD HOC ------------------
+uintmax_t getFolderSize(const std::filesystem::path& dir) {
+    uintmax_t totalSize = 0;
+    for (auto& p : std::filesystem::recursive_directory_iterator(dir)) {
+        if (std::filesystem::is_regular_file(p)) {
+            totalSize += std::filesystem::file_size(p);
+        }
+    }
+    return totalSize; // bytes
+}
+
+std::string getCurrentDateTime() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);   // safe windows
+#else
+    localtime_r(&t, &tm);   // safe Linux
+#endif
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y%m%d_%H%M%S");  // compact format: 20251121_081230
+    return oss.str();
+}
+void SEMproxy::saveMetrics(std::chrono::system_clock::time_point compute_tp,
+                           std::chrono::system_clock::time_point output_tp)
+{
+  
+    namespace fs = std::filesystem;
+
+    // Create folder build/metrics if it does not exist
+    fs::path metricsDir = "snapshot_metrics";
+    if (!fs::exists(metricsDir)) {
+        fs::create_directory(metricsDir);
+    }
+
+    fs::path metricsFile = metricsDir / "metrics.json";
+    //fs::path metricsDir = fs::current_path() / "snapshot-metrics";
+
+
+    fs::path snapshotsDir = "snapshots"; //
+    uintmax_t snapshotsSizeBytes = 0;
+
+    if (fs::exists(snapshotsDir)) {
+        snapshotsSizeBytes = getFolderSize(snapshotsDir);
+    }
+
+    fs::path snapshotsDir2 = "sismos"; //
+    uintmax_t snapshotsSizeBytes2 = 0;
+
+    if (fs::exists(snapshotsDir2)) {
+        snapshotsSizeBytes2 = getFolderSize(snapshotsDir2);
+    }
+
+    // Duration in seconds
+    auto compute_s = std::chrono::duration_cast<std::chrono::microseconds>(compute_tp.time_since_epoch()).count() / 1e6;
+    auto output_s  = std::chrono::duration_cast<std::chrono::microseconds>(output_tp.time_since_epoch()).count() / 1e6;
+
+    size_t mesh_nodes    = m_mesh->getNumberOfNodes();
+    size_t mesh_elements = m_mesh->getNumberOfElements();
+
+
+    // We open the file in Read/Write mode
+    std::fstream out(metricsFile, std::ios::in | std::ios::out);
+
+    bool first = true;
+
+    if (!fs::exists(metricsFile) || fs::file_size(metricsFile) == 0)
+    {
+        // New file, we open the object array
+        out.close();
+        out.open(metricsFile, std::ios::out);
+        out << "[\n";
+        first = true;
+    }
+    else
+    {
+        // File existing: move ] before the close of the array
+        out.seekp(-2, std::ios::end); // move pointer
+        out.write("", 0);             // nothing is written, just to stablish the position
+        out.flush();                  // make sure the pointer is correct
+        first = false;
+    }
+
+
+
+    out << std::fixed << std::setprecision(6);
+    out << "  ,{\n";
+    out << "    \"date\": \""  << getCurrentDateTime() << "\",\n";
+    out << "    \"compute_time\": " << compute_s << ",\n";
+    out << "    \"output_time\": " << output_s << ",\n";
+    out << "    \"snapshot_size_bytes\": " << (snapshotsSizeBytes+snapshotsSizeBytes2) << ",\n";
+    out << "    \"ex\": " << ex_ << ",\n";
+    out << "    \"ey\": " << ey_ << ",\n";
+    out << "    \"ez\": " << ez_ << ",\n";
+    out << "    \"nodes\": " << mesh_nodes << ",\n";
+    out << "    \"elements\": " << mesh_elements << ",\n";
+    out << "    \"samples\": " << num_sample_ << ",\n";
+    out << "    \"snapshot_enabled\": " << is_snapshots_ << ",\n";
+    out << "    \"snapshot_interval\": " << snap_time_interval_ << "\n";
+    out << "  }\n"; //snapshot_size
+
+    out << "]\n"; // we close the object array
+    out.close();
 }
