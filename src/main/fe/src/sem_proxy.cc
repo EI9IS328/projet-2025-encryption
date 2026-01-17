@@ -589,23 +589,20 @@ void SEMproxy::initSismos()
     }
 }
 
-// Écriture : Appelée à chaque pas de temps
 void SEMproxy::saveSismos(int timestep)
 {
     if (sismos_node_ids_.empty()) return;
 
     float time = timestep * dt_;
 
-    // Pour chaque noeud observé
     for (size_t i = 0; i < sismos_node_ids_.size(); ++i)
     {
         int nodeID = sismos_node_ids_[i];
         
-        // Récupération de la pression (attention à utiliser i2 comme dans saveSnapshot)
+        // Récupération de la pression
         float pressure = pnGlobal(nodeID, i2); 
 
         // Écriture dans le fichier correspondant
-        // Format: Temps [espace] Pression
         *sismos_files_[i] << time << "," << pressure << "\n";
     }
 }
