@@ -38,6 +38,9 @@ class SEMproxy
   void saveSismos(int timestep);
   void closeSismos();
 
+  void updateSismosInsitu(); // Calcul à chaque pas
+  void flushSismosInsitu();  // Écriture finale
+
 
   /**
    * @brief Destructor of the SEMproxy class
@@ -106,6 +109,10 @@ class SEMproxy
 
   //sismos
   bool is_sismos_;
+  bool is_sismos_insitu_;
+  std::vector<double> sismos_energy_;
+  std::vector<float> sismos_min_;
+  std::vector<float> sismos_max_;
   std::string sismos_input_file_;
   std::string sismos_folder_;
   std::vector<int> sismos_node_ids_;
