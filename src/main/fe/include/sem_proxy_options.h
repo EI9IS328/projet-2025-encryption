@@ -32,6 +32,7 @@ class SemProxyOptions
   std::string snapshotFolder = "snapshots";
 
   bool saveSismos = false;
+  bool saveSismosInsitu = false;
   std::string sismosInputFile = "sismos/sismos_pos.csv";
   std::string sismosFolder = "sismos";
 
@@ -91,6 +92,8 @@ class SemProxyOptions
           
         ("save-sismos", "Enable sismos saving",
             cxxopts::value<bool>(o.saveSismos))
+        ("save-sismos-insitu", "Enable insitu sismos saving",
+            cxxopts::value<bool>(o.saveSismosInsitu))
         ("sismos-input-file", "Coords of sismos",
             cxxopts::value<std::string>(o.sismosInputFile))
         ("sismos-folder", "Folder where snapshots are saved",
