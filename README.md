@@ -77,3 +77,70 @@ The following options can be used to configure your build:
 
 ---
 
+## SEM Experiments — Ad-hoc vs In-situ
+
+This repository provides shell scripts to run and compare two pressure-field analysis modes in the SEM proxy:
+
+- **Ad-hoc**: full pressure field snapshots + post-processing
+- **In-situ**: pressure statistics computed during the simulation
+
+---
+
+## Experiment 1 — Ad-hoc Snapshots (Visualization)
+
+Runs a single SEM simulation and saves full pressure-field snapshots.
+
+**Script**
+```
+exp1.sh
+```
+
+**Command executed**
+```
+./build/bin/semproxy \
+  --save-snapshots \
+  --snapshot-interval 50 \
+  --snapshot-folder snapshots \
+  --ex 20 --ey 20 --ez 20 \
+  --dt 0.001 \
+  --timemax 1.5
+```
+
+**Output**
+```
+snapshots/snapshot_XXXXXX.dat
+```
+
+---
+
+## Experiment 2 — Ad-hoc vs In-situ Comparison
+
+Runs a sequence of SEM simulations for increasing problem sizes and compares
+Ad-hoc and In-situ modes.
+
+**Script**
+```
+exp2_scaling.sh
+```
+
+**What the script does**
+
+For each problem size:
+- runs an **Ad-hoc** simulation (snapshots + post-processing)
+- runs an **In-situ** simulation (on-the-fly statistics)
+- collects timing and I/O metrics from `snapshot_metrics/metrics.json`
+- writes a CSV summary
+
+**Main outputs**
+```
+exp2_scaling_YYYYMMDD_HHMMSS/results.csv
+```
+
+Each run directory contains:
+- executed commands
+- simulation logs
+- metrics JSON
+- pressure statistics CSV
+- (Ad-hoc only) snapshots and post-processing results
+
+---
